@@ -17,17 +17,27 @@ import (
 
 */
 
+/*
+data:
+i 1 2 3 e
+↑
+pos = 0
+*/
 type BencodeDecoder struct {
-	data []byte
-	pos  int
+	data []byte /// the complete Bencode data
+	pos  int    /// where we currently are
 }
 
 func DecodeBencode(data []byte) (any, error) {
+	/// Initially pos is 0
 	d := &BencodeDecoder{
 		data: data,
 	}
 
+	/// The decoder looks at the current byte
+	/// and figures out what type it is
 	value, err := d.decode()
+
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +90,7 @@ func (d *BencodeDecoder) decodeInt() (int64, error) {
 		return 0, fmt.Errorf("unterminated integer")
 	}
 
+	/// Parse the integer
 	value, err := strconv.ParseInt(
 		string(d.data[start:d.pos]),
 		10,
@@ -90,12 +101,22 @@ func (d *BencodeDecoder) decodeInt() (int64, error) {
 		return 0, fmt.Errorf("invalid integer: %w", err)
 	}
 
+	/// Moves past e
 	d.pos++
 
 	return value, nil
 }
 
 func (d *BencodeDecoder) decodeString() ([]byte, error) {
+	/*
+		For string the format is:
+
+		[length]:[data]
+
+		4:spam
+		↑
+		pos = 0
+	*/
 	start := d.pos
 
 	for d.pos < len(d.data) && d.data[d.pos] != ':' {
@@ -106,6 +127,7 @@ func (d *BencodeDecoder) decodeString() ([]byte, error) {
 		return nil, fmt.Errorf("invalid string length")
 	}
 
+	/// Get the length of the string
 	length, err := strconv.Atoi(
 		string(d.data[start:d.pos]),
 	)
@@ -114,15 +136,33 @@ func (d *BencodeDecoder) decodeString() ([]byte, error) {
 		return nil, fmt.Errorf("invalid string length: %w", err)
 	}
 
+	/// Move past `:`
+	/// 4:spam
+	///   ↑
 	d.pos++
 
+	/*
+		Ex: 4:spam
+			  ↑
+		So end = 2 + 4 = 6
+	*/
 	end := d.pos + length
 
 	if end > len(d.data) {
 		return nil, fmt.Errorf("string exceeds input")
 	}
 
+	/*
+		create a new byte slice containing the string.
+
+		Bencode i/p 4:spam -> []byte("spam")
+
+		This is useful in torrent files because some Bencode
+		strings are binary data not normal text
+	*/
 	value := make([]byte, length)
+
+	/// Copy the string to the value
 	copy(value, d.data[d.pos:end])
 
 	d.pos = end
@@ -131,6 +171,7 @@ func (d *BencodeDecoder) decodeString() ([]byte, error) {
 }
 
 func (d *BencodeDecoder) decodeList() ([]any, error) {
+	/// Move past `l`
 	d.pos++
 
 	var result []any
@@ -145,11 +186,13 @@ func (d *BencodeDecoder) decodeList() ([]any, error) {
 			return result, nil
 		}
 
+		/// Decode each value inside the list
 		value, err := d.decode()
 		if err != nil {
 			return nil, err
 		}
 
+		/// Append the value to the result
 		result = append(result, value)
 	}
 }
@@ -169,11 +212,13 @@ func (d *BencodeDecoder) decodeDict() (map[string]any, error) {
 			return result, nil
 		}
 
+		/// Dict key in bencode is always a string
 		keyRaw, err := d.decodeString()
 		if err != nil {
 			return nil, err
 		}
 
+		/// Decode the value
 		value, err := d.decode()
 		if err != nil {
 			return nil, err
@@ -230,7 +275,35 @@ func encodeValue(buf *bytes.Buffer, value any) error {
 		for key := range v {
 			keys = append(keys, key)
 		}
+		/*
+			Why sort the keys?
 
+			Dictionary keys must be sorted.
+			This ensures deterministic Bencode,
+			which is essential when calculating
+			the torrent's info hash.
+
+			Suppose:
+
+			info = {
+				"name": "test.txt",
+				"length": 100
+			}
+
+			It must be encoded deterministically.
+
+			If one encoding produced:
+
+			d6:lengthi100e4:name8:test.txte
+
+			while another produced:
+
+			d4:name8:test.txt6:lengthi100ee
+
+			they represent the same logical map, but their SHA-1 hashes would be different.
+
+			BitTorrent needs everyone to calculate the same info hash.
+		*/
 		sort.Strings(keys)
 
 		for _, key := range keys {

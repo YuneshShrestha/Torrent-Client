@@ -9,23 +9,23 @@ import (
 )
 
 type Connection struct {
-	Conn net.Conn
+	Conn net.Conn // TCP connection to peer
 
-	PeerID [20]byte
+	PeerID [20]byte // Identity of peer
 
-	Choked bool
+	Choked bool // Can peer currently send us data
 
-	Interested bool
+	Interested bool // Are we interested on downloading from peer
 
-	Bitfield []byte
+	Bitfield []byte // Which pieces does peer have
 
-	LastActivity time.Time
+	LastActivity time.Time // When did we last communicate with peer later
 }
 
 func Connect(
-	address string,
-	infoHash [20]byte,
-	peerID [20]byte,
+	address string, // where is the peer?
+	infoHash [20]byte, // which torrent?
+	peerID [20]byte, // who are we?
 ) (*Connection, error) {
 
 	conn, err := net.DialTimeout(
@@ -52,7 +52,7 @@ func Connect(
 	c := &Connection{
 		Conn:         conn,
 		PeerID:       remotePeerID,
-		Choked:       true,
+		Choked:       true, /// We assume peer is choking us until we receive UNCHOKE
 		LastActivity: time.Now(),
 	}
 

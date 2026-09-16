@@ -1,0 +1,63 @@
+Torrent File Contains:
+
+1. announce
+   - Main tracker URL
+   - Example: udp://tracker.example.com:6969
+
+2. announce-list
+   - List of alternative trackers
+   - Used to find peers if needed
+
+3. comment
+   - Optional description/comment
+
+4. created by
+   - Software that created the torrent
+   - Example: WebTorrent
+
+5. creation date
+   - Date/time the torrent was created
+   - Stored as a Unix timestamp
+
+6. encoding
+   - Text encoding
+   - Example: UTF-8
+
+7. info
+   Contains the main torrent information:
+
+   a. name
+      - Name of the torrent
+      - Example: Big Buck Bunny
+
+   b. files
+      - List of files in the torrent
+      - Each file contains:
+          - length = file size in bytes
+          - path = file name/path
+
+   c. piece length
+      - Size of each piece
+      - Example: 262144 bytes = 256 KiB
+
+   d. pieces
+      - SHA-1 hashes of all pieces
+      - Each hash is 20 bytes
+      - Used to verify downloaded pieces
+
+Torrent
+│
+├── Piece 0
+│   ├── Block 0
+│   ├── Block 1
+│   └── Block 2
+│
+├── Piece 1
+│   ├── Block 0
+│   ├── Block 1
+│   └── Block 2
+│
+└── Piece 2
+    ├── Block 0
+    ├── Block 1
+    └── Block 2

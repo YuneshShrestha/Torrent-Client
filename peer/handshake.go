@@ -1,11 +1,11 @@
 package peer
 
 /*
-pstrlen
-pstr
-reserved
-info_hash
-peer_id
+pstrlen - 1 byte
+pstr - 19 bytes
+reserved - 8 bytes
+info_hash - 20 bytes
+peer_id - 20 bytes
 */
 import (
 	"fmt"
@@ -14,22 +14,24 @@ import (
 )
 
 const (
-	protocolString = "BitTorrent protocol"
+	protocolString = "BitTorrent protocol" // has 19 characters
 	handshakeLen   = 68
 )
 
 func Handshake(
-	conn net.Conn,
-	infoHash [20]byte,
-	peerID [20]byte,
+	conn net.Conn, // TCP connection to other peer
+	infoHash [20]byte, // torrent's identifier
+	peerID [20]byte, // client's unique identifier
 ) ([20]byte, error) {
 
 	var result [20]byte
 
 	request := make([]byte, handshakeLen)
 
+	// Pstrlen (for "BitTorrent protocol"): 19 decimal = 0x13 Hex
 	request[0] = byte(len(protocolString))
 
+	// Pstr: "BitTorrent protocol"
 	copy(
 		request[1:20],
 		protocolString,
@@ -52,8 +54,26 @@ func Handshake(
 		return result, err
 	}
 
+	/// This will store peer's handshake
 	response := make([]byte, handshakeLen)
 
+	/*
+		TCP does not guarantee that one Read() gives you all 68 bytes.
+
+		For example, the peer might send:
+
+		68 bytes
+
+		but TCP could deliver:
+
+		20 bytes
+		then
+		30 bytes
+		then
+		18 bytes
+
+		io.ReadFull() keeps reading until it gets the requested 68 bytes or encounters an error.
+	*/
 	if _, err := io.ReadFull(
 		conn,
 		response,
@@ -73,6 +93,7 @@ func Handshake(
 		)
 	}
 
+	/// Contains torrent's info hash
 	var receivedHash [20]byte
 
 	copy(
@@ -80,12 +101,14 @@ func Handshake(
 		response[28:48],
 	)
 
+	/// Verify if we are talking to the same torrent
 	if receivedHash != infoHash {
 		return result, fmt.Errorf(
 			"info hash mismatch",
 		)
 	}
 
+	/// Extract Remote Peer ID and store it in result and return
 	copy(
 		result[:],
 		response[48:68],

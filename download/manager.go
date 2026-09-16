@@ -16,17 +16,17 @@ import (
 )
 
 type Manager struct {
-	Torrent *torrent.MetaInfo
+	Torrent *torrent.MetaInfo ///  What are we downloading?
 
-	PeerID [20]byte
+	PeerID [20]byte ///  Who are we?
 
-	Peers []tracker.Peer
+	Peers []tracker.Peer ///  Who can we download from?
 
-	Pieces *pieces.Manager
+	Pieces *pieces.Manager ///  Which pieces/blocks do we need?
 
-	Storage *storage.Storage
+	Storage *storage.Storage /// Where do we save the data?
 
-	mu sync.Mutex
+	mu sync.Mutex /// Protect shared data
 }
 
 func New(
@@ -39,11 +39,11 @@ func New(
 		output,
 		&t.Info,
 	)
-
 	if err != nil {
 		return nil, err
 	}
 
+	/// Note: Peers is initially empty because you haven't contacted the tracker yet.
 	return &Manager{
 		Torrent: t,
 		PeerID:  peerID,
@@ -132,7 +132,15 @@ func (m *Manager) peerLoop(
 func (m *Manager) downloadFromPeer(
 	address string,
 ) error {
+	/*
+		Connects to the peer and performs the BitTorrent handshake.
 
+		Your client
+			|
+			| handshake
+			↓
+		Peer
+	*/
 	conn, err := peer.Connect(
 		address,
 		m.Torrent.InfoHash,
@@ -169,13 +177,22 @@ func (m *Manager) downloadFromPeer(
 		switch msg.ID {
 
 		case peer.Choke:
-
+			/// I'm not allowing you to request data right now.
 			conn.Choked = true
 
 		case peer.Unchoke:
-
+			/// You can request data now.
 			conn.Choked = false
 
+			/*
+				Unchoke
+				|
+				requestNext()
+				|
+				Find needed block
+				|
+				Send REQUEST
+			*/
 			if err := m.requestNext(
 				conn,
 				peerKey,
@@ -184,7 +201,14 @@ func (m *Manager) downloadFromPeer(
 			}
 
 		case peer.Bitfield:
+			/*
+				The peer tells us which pieces it has.
 
+				Peer bitfield:
+				Piece:  0 1 2 3 4 5
+						↓ ↓ ↓ ↓ ↓ ↓
+						1 0 1 1 0 1
+			*/
 			conn.Bitfield = msg.Payload
 
 			m.Pieces.SetPeerBitfield(
@@ -202,7 +226,16 @@ func (m *Manager) downloadFromPeer(
 			}
 
 		case peer.Have:
+			/// Tells us about one newly available piece
+			///
+			/*
+				WHY requestNext()?
 
+				The peer has just announced that a new piece is available.
+
+				If we are unchoked, we can immediately reconsider
+				what block we should request from this peer.
+			*/
 			if len(msg.Payload) != 4 {
 				continue
 			}
@@ -253,6 +286,7 @@ func (m *Manager) requestNext(
 		return nil
 	}
 
+	/// Find the rarest available piece
 	block, ok := m.Pieces.NextBlock(
 		peerKey,
 	)
@@ -274,6 +308,21 @@ func (m *Manager) handlePiece(
 	peerKey string,
 	payload []byte,
 ) error {
+	/*
+		PIECE message
+		┌─────────────┬─────────────┬───────────────┐
+		│ pieceIndex  │    begin    │     data      │
+		│   4 bytes   │   4 bytes   │   actual data │
+		└─────────────┴─────────────┴───────────────┘
+
+		Eg:
+		Piece Index = 2
+		Begin = 16384
+		data = 16 KB
+
+		This means the peer has piece 2 and it has 16 KB of data which
+		starts at byte 16384.
+	*/
 
 	if len(payload) < 8 {
 		return fmt.Errorf(
@@ -281,31 +330,67 @@ func (m *Manager) handlePiece(
 		)
 	}
 
+	/// Which piece it belongs to
+	/// Eg: 2 means this data belongs to piece 2
 	pieceIndex := int(
 		binary.BigEndian.Uint32(
 			payload[0:4],
 		),
 	)
 
+	/// Where the data starts
+	/// Eg: 00 00 40 00
+	/// Means the data starts at byte 16384
+	/// 0x40 = 64 and 64 * 256^1 = 16384
+	/*
+		Byte 1    Byte 2    Byte 3    Byte 4
+		00        00        40        00
+		↓         ↓         ↓         ↓
+		256³      256²      256¹      256⁰
+	*/
 	begin := int64(
 		binary.BigEndian.Uint32(
 			payload[4:8],
 		),
 	)
 
+	/// The actual data
 	data := payload[8:]
 
+	/// Store the block
 	block := pieces.Block{
 		Piece:  pieceIndex,
 		Begin:  begin,
 		Length: int64(len(data)),
 	}
 
+	/*
+		StoreBlock() has 2 jobs:
+
+		1. Save the actual data in memort
+		2. Remeber that this block has been received
+	*/
 	complete := m.Pieces.StoreBlock(
 		block,
 		data,
 	)
 
+	/// Calculate the global offset
+	/*
+		Example:
+		pieceIndex  = 2
+		pieceLength = 32768
+		begin       = 16384
+
+		Therefore:
+
+		2 × 32768 + 16384
+		= 65536 + 16384
+		= 81920
+
+		So the global offset is 81920
+
+	*/
 	globalOffset :=
 		int64(pieceIndex)*
 			m.Torrent.Info.PieceLength +

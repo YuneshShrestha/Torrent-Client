@@ -9,6 +9,23 @@ package torrent
 	1000 ───────── 2999
 		file B
 */
+
+/*
+	movie.mp4
+	Path   = ["Movie", "movie.mp4"]
+	Offset = 0
+	Length = 1000
+
+	subtitles.srt
+	Path   = ["Movie", "subtitles.srt"]
+	Offset = 1000
+	Length = 200
+
+	poster.jpg
+	Path   = ["Movie", "poster.jpg"]
+	Offset = 1200
+	Length = 500
+*/
 type FileSegment struct {
 	Path   []string
 	Offset int64

@@ -25,13 +25,27 @@ const (
 )
 
 type Message struct {
-	ID      byte
-	Payload []byte
+	ID      byte   // what message is this?
+	Payload []byte // Data belonging to that message
 }
 
+// This reads a BitTorrent message from the network.
 func ReadMessage(r io.Reader) (*Message, error) {
+	/*
+		┌────────────┬──────────┬──────────────┐
+		│ 4-byte     │ 1-byte   │ N-byte       │
+		│ length     │ ID       │ payload      │
+		└────────────┴──────────┴──────────────┘
+					  ← length ───────────────→
+
+	*/
 	var length uint32
 
+	/// The first 4 bytes of every BitTorrent message tell us how many bytes follow.
+	/*
+		The length includes:
+		message ID + payload
+	*/
 	if err := binary.Read(
 		r,
 		binary.BigEndian,
@@ -40,10 +54,27 @@ func ReadMessage(r io.Reader) (*Message, error) {
 		return nil, err
 	}
 
+	/*
+		A BitTorrent message with:
+		length = 0
+		is a keep-alive.
+
+		So 00 00 00 00 means I'm still connected
+	*/
 	if length == 0 {
 		return nil, nil
 	}
 
+	/*
+			Prevent an enormous allocation
+		    without this check, a malicious peer could send
+
+			FF FF FF FF
+
+			That could make your program try to allocate an enormous amount of memory. So this is a safety limit.
+
+
+	*/
 	if length > 1<<20 {
 		return nil, fmt.Errorf(
 			"message too large: %d",
@@ -51,8 +82,10 @@ func ReadMessage(r io.Reader) (*Message, error) {
 		)
 	}
 
+	// Allocate the message data
 	data := make([]byte, length)
 
+	// ReadFull gets data even when data are received in chunks
 	if _, err := io.ReadFull(r, data); err != nil {
 		return nil, err
 	}
@@ -68,24 +101,50 @@ func WriteMessage(
 	id byte,
 	payload []byte,
 ) error {
-
+	/*
+		┌────────────┬──────────┬──────────────┐
+		│ 4-byte     │ 1-byte   │ N-byte       │
+		│ length     │ ID       │ payload      │
+		└────────────┴──────────┴──────────────┘
+	*/
+	// length = length of the message ID (i.e. 1) + length of the payload
 	length := uint32(1 + len(payload))
 
 	var header [4]byte
 
+	/// Convert the length to 4 bytes
+	/*
+		Suppose:
+
+		length = 13
+
+		Then:
+
+		13 decimal
+		    ↓
+		00 00 00 0D
+
+	*/
 	binary.BigEndian.PutUint32(
 		header[:],
 		length,
 	)
 
+	// Write the length
 	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}
 
+	// Write the message ID
 	if _, err := w.Write([]byte{id}); err != nil {
 		return err
 	}
 
+	/*
+		If there is payload, write it.
+		If there isn't, skip it.
+
+	*/
 	if len(payload) > 0 {
 		_, err := w.Write(payload)
 		return err
@@ -108,6 +167,12 @@ func WriteRequest(
 	begin uint32,
 	length uint32,
 ) error {
+	/*
+		┌──────────────┬──────────────┬──────────────┐
+		│ index        │ begin        │ length       │
+		│ 4 bytes      │ 4 bytes      │ 4 bytes      │
+		└──────────────┴──────────────┴──────────────┘
+	*/
 
 	payload := make([]byte, 12)
 

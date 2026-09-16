@@ -160,17 +160,7 @@ func announce(
 		case strings.HasPrefix(
 			trackerURL,
 			"http://",
-		):
-
-			peers, err = tracker.AnnounceHTTP(
-				trackerURL,
-				t.InfoHash,
-				peerID,
-				port,
-				t.Info.Length,
-			)
-
-		case strings.HasPrefix(
+		) || strings.HasPrefix(
 			trackerURL,
 			"https://",
 		):
@@ -187,7 +177,6 @@ func announce(
 			trackerURL,
 			"udp://",
 		):
-
 			peers, err = tracker.AnnounceUDP(
 				trackerURL,
 				t.InfoHash,
